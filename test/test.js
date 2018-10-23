@@ -5,6 +5,7 @@ const passportStub = require('passport-stub');
 const User = require('../models/user');
 const Schedule = require('../models/schedule');
 const Candidate = require('../models/candidate');
+const Availability = require('../models/availability');
 
 describe('/login', () => {
   before(() => {
@@ -71,19 +72,43 @@ describe('/schedules', () => {
             .expect(/テスト候補2/)
             .expect(/テスト候補3/)
             .expect(200)
-            .end(() => {
-              // テストで作成したデータを削除
-              const scheduleId = createdSchedulePath.split('/schedules/')[1];
-              Candidate.findAll({
-                where: { scheduleId: scheduleId }
-              }).then((candidates) => {
-                candidates.forEach((c) => { c.destroy(); });
-                Schedule.findById(scheduleId).then((s) => { s.destroy(); });
-              });
-              done();
-            });
+            .end((err, res) => {deleteScheduleAggregate(createdSchedulePath.split('/schedules/')[1], done, err);});
         });
     });
   });
-
 });
+
+describe('/schedules/:scheduleId/users/:userId/candidates/:candidateId', () => {
+  before(() => {
+    passportStub.install(app);
+    passportStub.login({ id: 0, username: 'testuser' });
+  });
+
+  after(() => {
+    passportStub.logout();
+    passportStub.uninstall(app);
+  });
+
+  it('出欠が更新できる', (done) => {
+    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
+      request(app)
+        .post('/schedules')
+        .send({ scheduleName: 'テスト出欠更新予定１', memo: 'テスト出欠更新メモ１', candidates: 'テスト出欠更新候補１' })
+        .end((err, res) => {
+          const createdSchedulePath = res.headers.location;
+          const scheduleId = createdSchedulePath.split('/schedules')[1];
+          Candidate.findOne({
+            where: { scheduleId: scheduleId}
+          }).then((candidate) => {
+            //更新がされることをテスト
+            request(app)
+              .post(`/schedules/${scheduleId}/users/${0}/candidates/${candidate.candidateId}`)
+              .send({ availability: 2})  //出席に更新
+              .expect('{"status":"OK","availability":2}')
+              .end((err, res) => { deleteScheduleAggregate(scheduleId, done, err); });
+          });
+        });
+    });
+  });
+});
+
